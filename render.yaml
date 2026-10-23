@@ -1,0 +1,72 @@
+# Render Blueprint Specification for HackMate v2
+version: "1"
+
+databases:
+  - name: hackmate-postgres
+    plan: starter
+    databaseName: hackmate_db
+    user: hackmate_user
+    region: oregon
+
+services:
+  # ----------------------------------------------------
+  # Backend API Gateway & Orchestrator (FastAPI)
+  # ----------------------------------------------------
+  - type: web
+    name: hackmate-backend
+    runtime: python
+    region: oregon
+    plan: starter
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt && alembic upgrade head"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2"
+    healthCheckPath: /api/v2/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hackmate-postgres
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false # Set in Render Dashboard Secret Manager
+      - key: GEMINI_MODEL
+        value: gemini-flash-latest
+      - key: CORS_ORIGINS
+        value: "*" # Update with custom .xyz domain or frontend service URL
+      - key: BUILD_TIMEOUT_SECONDS
+        value: "120"
+      - key: MAX_REPAIR_ATTEMPTS
+        value: "1"
+      - key: RUNNER_TYPE
+        value: local # Render web services run inside an unprivileged container; local isolated sandbox executes non-root Vite builds
+      - key: ENABLE_LOCAL_DEV_RUNNER
+        value: "true"
+      - key: FIRECRAWL_API_KEY
+        sync: false # Optional
+      - key: N8N_WEBHOOK_URL
+        sync: false # Optional
+      - key: N8N_WEBHOOK_SECRET
+        sync: false # Optional
+      - key: ADAPTION_API_KEY
+        sync: false # Optional
+
+  # ----------------------------------------------------
+  # Frontend Application Dashboard (Next.js 15)
+  # ----------------------------------------------------
+  - type: web
+    name: hackmate-frontend
+    runtime: node
+    region: oregon
+    plan: starter
+    rootDir: frontend
+    buildCommand: "npm install && npm run build"
+    startCommand: "npm start"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: hackmate-backend
+          property: host
