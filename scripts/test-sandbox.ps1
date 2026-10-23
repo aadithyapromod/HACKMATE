@@ -1,11 +1,11 @@
 # ==============================================================================
-# HackMate - Docker Preview Runner End-to-End Validation
+# HackMate - Person 4 Docker Preview Runner & QA Test Suite
 # ==============================================================================
 
 $ErrorActionPreference = "Continue"
 
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host " HackMate Sandbox Preview Runner Verification     " -ForegroundColor Cyan
+Write-Host " HackMate Runner & QA Test Suite Execution        " -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # 1. Resolve Python Executable
@@ -37,16 +37,16 @@ if (-not $pythonCmd) {
 
 Write-Host "Using Python: $pythonCmd" -ForegroundColor Gray
 
-# 2. Run Test Suite
-Write-Host "`n[1/2] Running Runner Tests (validation + E2E)..." -ForegroundColor Yellow
-& $pythonCmd sandbox/tests/test_runner.py
+# 2. Run Comprehensive Test Suite
+Write-Host "`nRunning Runner Test Suite (Unit, Security, and E2E)..." -ForegroundColor Yellow
+& $pythonCmd runner/tests/test_runner.py
 $testExit = $LASTEXITCODE
 
 Write-Host "`n==================================================" -ForegroundColor Cyan
 if ($testExit -eq 0) {
-    Write-Host " Sandbox Verification Completed Successfully! " -ForegroundColor Green
+    Write-Host " All Person 4 Tests Completed Successfully! " -ForegroundColor Green
 } else {
-    Write-Host " Sandbox Verification Failed with Code: $testExit " -ForegroundColor Red
+    Write-Host " Test Suite Failed with Exit Code: $testExit " -ForegroundColor Red
 }
 Write-Host "==================================================" -ForegroundColor Cyan
 exit $testExit
