@@ -1,4 +1,6 @@
-import React from "react";
+"use client";
+
+import React, { useEffect, useRef } from "react";
 import { Terminal, CheckCircle2, AlertCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { BuildResult } from "@/lib/types";
@@ -12,6 +14,15 @@ export const BuildLogs: React.FC<BuildLogsProps> = ({
   buildResult,
   isMock = false,
 }) => {
+  const logContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new logs arrive
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [buildResult?.logs]);
+
   return (
     <Card
       title="Runner Sandbox Build Logs"
@@ -42,7 +53,10 @@ export const BuildLogs: React.FC<BuildLogsProps> = ({
         </div>
       }
     >
-      <div className="rounded-lg bg-[#070a10] border border-gray-800/90 p-3 font-mono text-xs text-gray-300 overflow-x-auto max-h-52 leading-relaxed">
+      <div
+        ref={logContainerRef}
+        className="rounded-lg bg-[#070a10] border border-gray-800/90 p-3 font-mono text-xs text-gray-300 overflow-y-auto max-h-52 leading-relaxed"
+      >
         {buildResult?.logs ? (
           <pre className="whitespace-pre-wrap">{buildResult.logs}</pre>
         ) : (

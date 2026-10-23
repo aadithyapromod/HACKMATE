@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Header } from "@/components/dashboard/Header";
 import { IdeaInput } from "@/components/dashboard/IdeaInput";
 import { ProjectStatusBadge } from "@/components/project/ProjectStatusBadge";
@@ -15,10 +15,13 @@ import {
   Project,
   ProjectStatus,
   Task,
+  TaskStatus,
   GeneratedFile,
   BuildResult,
+  AgentEvent,
 } from "@/lib/types";
-import { Sparkles, Layers, Info } from "lucide-react";
+import { isValidPreviewUrl } from "@/lib/utils";
+import { Sparkles, Info, RefreshCw, FolderGit2, AlertTriangle } from "lucide-react";
 
 // Clearly labeled mock data for initial UI inspection and teammate demonstration
 const MOCK_TASKS: Task[] = [
@@ -52,7 +55,7 @@ const MOCK_FILES: GeneratedFile[] = [
   {
     path: "src/App.jsx",
     content: `import React, { useState } from 'react';
-import { Sparkles, Trophy, Users, Rocket } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 export default function App() {
   const [joined, setJoined] = useState(false);
@@ -115,71 +118,297 @@ export default function DashboardPage() {
   const [buildResult, setBuildResult] = useState<BuildResult | null>(MOCK_BUILD);
   const [useMockData, setUseMockData] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [projectLookupId, setProjectLookupId] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  const { events, isConnected, latestStatus } = useProjectEvents(
-    activeProject?.id || null
-  );
+  // Reference tracking currently active project ID to guard against stale async responses
+  const activeProjectIdRef = useRef<string | null>(null);
+  const refreshTimersRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
+
+  // Debounce helper to coalesce fast SSE updates and avoid redundant network requests
+  const debouncedAction = useCallback((key: string, fn: () => void, delayMs = 350) => {
+    if (refreshTimersRef.current[key]) {
+      clearTimeout(refreshTimersRef.current[key]);
+    }
+    refreshTimersRef.current[key] = setTimeout(() => {
+      delete refreshTimersRef.current[key];
+      fn();
+    }, delayMs);
+  }, []);
+
+  // Cleanup all timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(refreshTimersRef.current).forEach(clearTimeout);
+      refreshTimersRef.current = {};
+    };
+  }, []);
 
   // Check backend health on mount
   useEffect(() => {
+    let isMounted = true;
     async function checkHealth() {
       try {
         const health = await api.getHealth();
-        if (health.status === "ok") {
+        if (isMounted && health.status === "ok") {
           setBackendHealthy(true);
         }
       } catch {
-        setBackendHealthy(false);
+        if (isMounted) {
+          setBackendHealthy(false);
+        }
       }
     }
     checkHealth();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // Update project status if SSE emits update
-  useEffect(() => {
-    if (latestStatus && activeProject) {
-      setActiveProject((prev) =>
-        prev ? { ...prev, status: latestStatus as ProjectStatus } : null
-      );
+  // Authoritative data fetch for a given project ID
+  const fetchProjectState = useCallback(
+    async (projectId: string, silent = false) => {
+      if (!silent) setIsSyncing(true);
+      try {
+        const [proj, freshTasks, fileList, preview] = await Promise.all([
+          api.getProject(projectId),
+          api.getProjectTasks(projectId),
+          api.getProjectFiles(projectId),
+          api.getProjectPreview(projectId),
+        ]);
+
+        // Guard against race conditions when user switches project during fetch
+        if (activeProjectIdRef.current === projectId) {
+          setActiveProject(proj);
+          setTasks(freshTasks);
+          setFiles(fileList.files);
+          setBuildResult(preview);
+        }
+      } catch (err: unknown) {
+        if (activeProjectIdRef.current === projectId) {
+          const msg = err instanceof Error ? err.message : "Failed to sync project state.";
+          setErrorMessage(msg);
+        }
+      } finally {
+        if (!silent) setIsSyncing(false);
+      }
+    },
+    []
+  );
+
+  // Switch to a new or existing project
+  const selectProject = useCallback(
+    async (projectId: string | null) => {
+      // Clear active timers
+      Object.values(refreshTimersRef.current).forEach(clearTimeout);
+      refreshTimersRef.current = {};
+
+      if (!projectId) {
+        activeProjectIdRef.current = null;
+        setActiveProject(null);
+        setTasks(MOCK_TASKS);
+        setFiles(MOCK_FILES);
+        setBuildResult(MOCK_BUILD);
+        setUseMockData(true);
+        setErrorMessage(null);
+        return;
+      }
+
+      activeProjectIdRef.current = projectId;
+      setUseMockData(false);
+      setErrorMessage(null);
+
+      await fetchProjectState(projectId);
+    },
+    [fetchProjectState]
+  );
+
+  // SSE event handlers configured via useProjectEvents
+  const { events, isConnected, connectionError } = useProjectEvents(
+    activeProject?.id || null,
+    {
+      onStatusChange: (status) => {
+        setActiveProject((prev) =>
+          prev ? { ...prev, status: status as ProjectStatus } : null
+        );
+
+        const currentId = activeProjectIdRef.current;
+        if (!currentId) return;
+
+        // Refresh tasks and files when state moves to generating or building
+        debouncedAction("status_sync", () => {
+          fetchProjectState(currentId, true);
+        }, 400);
+      },
+
+      onTaskUpdated: (event: AgentEvent) => {
+        // Optimistic inline update if task fields are present in data
+        const taskId = event.data?.task_id as string | undefined;
+        const newStatus = event.data?.status as TaskStatus | undefined;
+        const newTitle = event.data?.title as string | undefined;
+
+        if (taskId && newStatus) {
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === taskId
+                ? { ...t, status: newStatus, title: newTitle || t.title }
+                : t
+            )
+          );
+        }
+
+        const currentId = activeProjectIdRef.current;
+        if (!currentId) return;
+
+        // Authoritative debounced refresh of task list
+        debouncedAction("tasks_refresh", async () => {
+          try {
+            const freshTasks = await api.getProjectTasks(currentId);
+            if (activeProjectIdRef.current === currentId) {
+              setTasks(freshTasks);
+            }
+          } catch (e) {
+            console.error("[Tasks Refresh Error]", e);
+          }
+        }, 350);
+      },
+
+      onBuildLog: (event: AgentEvent) => {
+        // Support either chunk, logs, or message as per contract
+        const chunk = event.data?.chunk ?? event.data?.logs ?? event.data?.message;
+        if (chunk !== undefined && chunk !== null) {
+          const chunkStr = String(chunk);
+          setBuildResult((prev) => {
+            if (!prev) {
+              return { success: false, exit_code: 0, logs: chunkStr, preview_url: null };
+            }
+            // If server sends full log text vs. incremental delta chunk
+            const updatedLogs = prev.logs
+              ? prev.logs.includes(chunkStr)
+                ? prev.logs
+                : `${prev.logs}\n${chunkStr}`
+              : chunkStr;
+            return { ...prev, logs: updatedLogs };
+          });
+        }
+      },
+
+      onBuildCompleted: (event: AgentEvent) => {
+        const success = typeof event.data?.success === "boolean" ? event.data.success : true;
+        const exitCode = typeof event.data?.exit_code === "number" ? event.data.exit_code : 0;
+
+        setBuildResult((prev) => ({
+          success,
+          exit_code: exitCode,
+          logs: prev?.logs || "Build completed.",
+          preview_url: prev?.preview_url || null,
+        }));
+
+        const currentId = activeProjectIdRef.current;
+        if (!currentId) return;
+
+        // Refresh project, tasks, files, and build info
+        debouncedAction("build_completed_sync", () => {
+          fetchProjectState(currentId, true);
+        }, 300);
+      },
+
+      onPreviewReady: (event: AgentEvent) => {
+        const rawUrl = event.data?.preview_url ? String(event.data.preview_url) : null;
+        if (rawUrl && isValidPreviewUrl(rawUrl)) {
+          setBuildResult((prev) =>
+            prev
+              ? { ...prev, preview_url: rawUrl }
+              : { success: true, exit_code: 0, logs: "", preview_url: rawUrl }
+          );
+        }
+      },
+
+      onProjectCompleted: (event: AgentEvent) => {
+        setActiveProject((prev) =>
+          prev ? { ...prev, status: "completed" as ProjectStatus } : null
+        );
+
+        const rawUrl = event.data?.preview_url ? String(event.data.preview_url) : null;
+        if (rawUrl && isValidPreviewUrl(rawUrl)) {
+          setBuildResult((prev) =>
+            prev
+              ? { ...prev, preview_url: rawUrl }
+              : { success: true, exit_code: 0, logs: "", preview_url: rawUrl }
+          );
+        }
+
+        const currentId = activeProjectIdRef.current;
+        if (!currentId) return;
+
+        debouncedAction("project_completed_sync", () => {
+          fetchProjectState(currentId, true);
+        }, 250);
+      },
+
+      onProjectFailed: (event: AgentEvent) => {
+        setActiveProject((prev) =>
+          prev ? { ...prev, status: "failed" as ProjectStatus } : null
+        );
+
+        const err = event.data?.error ? String(event.data.error) : "Pipeline execution failed.";
+        setErrorMessage(`Pipeline failed: ${err}`);
+
+        const currentId = activeProjectIdRef.current;
+        if (!currentId) return;
+
+        debouncedAction("project_failed_sync", () => {
+          fetchProjectState(currentId, true);
+        }, 250);
+      },
     }
-  }, [latestStatus]);
+  );
 
   // Handle Idea Submission
   const handleStartBuilding = async (idea: string) => {
     setIsSubmitting(true);
     setErrorMessage(null);
+
     try {
+      // 1. Create project via POST /api/projects
       const created = await api.createProject(idea);
+      activeProjectIdRef.current = created.id;
       setActiveProject(created);
       setUseMockData(false);
+      setTasks([]);
+      setFiles([]);
+      setBuildResult(null);
 
-      // Trigger pipeline start
+      // 2. Start pipeline via POST /api/projects/{id}/start
       const started = await api.startProject(created.id);
-      setActiveProject(started);
+      if (activeProjectIdRef.current === created.id) {
+        setActiveProject(started);
+      }
 
-      // Fetch fresh tasks and files
-      const fetchedTasks = await api.getProjectTasks(created.id);
-      setTasks(fetchedTasks);
-
-      const fetchedFiles = await api.getProjectFiles(created.id);
-      setFiles(fetchedFiles.files);
-
-      const fetchedPreview = await api.getProjectPreview(created.id);
-      setBuildResult(fetchedPreview);
+      // 3. Fetch initial state
+      await fetchProjectState(created.id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to connect to backend service.";
       setErrorMessage(msg);
-      // Fallback to demo mode if backend is unreachable
+      // Local fallback representation if backend is completely offline
       setActiveProject({
-        id: "demo-project-123",
+        id: "demo-project-offline",
         idea,
-        status: "planning",
+        status: "created",
         created_at: new Date().toISOString(),
       });
       setUseMockData(true);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Switch or lookup project by ID
+  const handleLookupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanId = projectLookupId.trim();
+    if (!cleanId) return;
+    await selectProject(cleanId);
   };
 
   const currentStatus = activeProject ? activeProject.status : "created";
@@ -195,21 +424,72 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2">
               <Info size={16} className="text-purple-400 shrink-0" />
               <span>
-                <strong>Scaffold Demo Mode:</strong> Displaying mock pipeline components. Submit an idea below or start the backend (`python uvicorn`) to stream live project data.
+                <strong>Scaffold Demo Mode:</strong> Displaying mock pipeline components. Submit an idea below or start the backend (`uvicorn app.main:app`) to stream live project data.
               </span>
             </div>
             <button
-              onClick={() => setUseMockData(false)}
+              onClick={() => selectProject(null)}
               className="text-purple-400 hover:text-white underline text-[11px]"
             >
-              Clear Mock Data
+              Reset to Standby
             </button>
           </div>
         )}
 
+        {/* Real-time SSE Connection Status Banner */}
+        {activeProject && !useMockData && (
+          <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-[#111827]/70 px-4 py-2 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    isConnected
+                      ? "bg-emerald-400 animate-pulse"
+                      : connectionError
+                      ? "bg-rose-400"
+                      : "bg-amber-400"
+                  }`}
+                />
+                <span className="font-mono text-gray-300">
+                  {isConnected
+                    ? "SSE Stream Active"
+                    : connectionError
+                    ? "SSE Reconnecting..."
+                    : "Connecting to Event Stream..."}
+                </span>
+              </div>
+              <span className="text-gray-500">•</span>
+              <div className="flex items-center gap-1.5 font-mono text-gray-400">
+                <FolderGit2 size={13} className="text-purple-400" />
+                <span>Project:</span>
+                <span className="text-gray-200 font-semibold">{activeProject.id}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {isSyncing && (
+                <span className="text-purple-400 flex items-center gap-1 text-[11px] font-mono animate-pulse">
+                  <RefreshCw size={11} className="animate-spin" />
+                  Syncing
+                </span>
+              )}
+              <button
+                onClick={() => fetchProjectState(activeProject.id)}
+                className="text-gray-400 hover:text-white flex items-center gap-1 text-[11px] font-mono border border-gray-800 rounded px-2 py-0.5 bg-gray-900 hover:bg-gray-800 transition-colors"
+                title="Force refresh project state from backend"
+              >
+                <RefreshCw size={11} />
+                Refresh
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Error Notice */}
         {errorMessage && (
-          <div className="rounded-lg border border-rose-900/50 bg-rose-950/20 px-4 py-2.5 text-xs text-rose-300">
-            <strong>Backend Connection Notice:</strong> {errorMessage} (Displaying local demo view)
+          <div className="flex items-center gap-2 rounded-lg border border-rose-900/50 bg-rose-950/20 px-4 py-2.5 text-xs text-rose-300">
+            <AlertTriangle size={15} className="shrink-0 text-rose-400" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
@@ -232,6 +512,35 @@ export default function DashboardPage() {
           </div>
 
           <IdeaInput onSubmit={handleStartBuilding} isLoading={isSubmitting} />
+
+          {/* Quick Lookup Bar */}
+          <div className="flex items-center justify-between pt-1 text-xs text-gray-500">
+            <form onSubmit={handleLookupSubmit} className="flex items-center gap-2">
+              <span className="font-mono text-[11px]">Load Project by ID:</span>
+              <input
+                type="text"
+                value={projectLookupId}
+                onChange={(e) => setProjectLookupId(e.target.value)}
+                placeholder="project-..."
+                className="bg-[#111827] border border-gray-800 rounded px-2 py-0.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-600 font-mono"
+              />
+              <button
+                type="submit"
+                className="text-[11px] font-mono text-gray-400 hover:text-white border border-gray-800 rounded px-2 py-0.5 bg-gray-900 hover:bg-gray-800"
+              >
+                Switch
+              </button>
+            </form>
+
+            {activeProject && !useMockData && (
+              <button
+                onClick={() => selectProject(null)}
+                className="text-[11px] font-mono text-gray-500 hover:text-gray-300 underline"
+              >
+                Back to Demo Mode
+              </button>
+            )}
+          </div>
         </section>
 
         {/* Main Grid: Left = Tasks & Activity, Right = Preview, Code & Logs */}

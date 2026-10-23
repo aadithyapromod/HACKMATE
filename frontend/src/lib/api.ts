@@ -9,7 +9,7 @@ import {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = "ApiError";
@@ -45,38 +45,40 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
-  async getHealth(): Promise<HealthResponse> {
-    return request<HealthResponse>("/api/health");
+  async getHealth(options?: RequestInit): Promise<HealthResponse> {
+    return request<HealthResponse>("/api/health", options);
   },
 
-  async createProject(idea: string): Promise<Project> {
+  async createProject(idea: string, options?: RequestInit): Promise<Project> {
     const payload: ProjectCreateRequest = { idea };
     return request<Project>("/api/projects", {
+      ...options,
       method: "POST",
       body: JSON.stringify(payload),
     });
   },
 
-  async getProject(id: string): Promise<Project> {
-    return request<Project>(`/api/projects/${id}`);
+  async getProject(id: string, options?: RequestInit): Promise<Project> {
+    return request<Project>(`/api/projects/${id}`, options);
   },
 
-  async startProject(id: string): Promise<Project> {
+  async startProject(id: string, options?: RequestInit): Promise<Project> {
     return request<Project>(`/api/projects/${id}/start`, {
+      ...options,
       method: "POST",
     });
   },
 
-  async getProjectTasks(id: string): Promise<Task[]> {
-    return request<Task[]>(`/api/projects/${id}/tasks`);
+  async getProjectTasks(id: string, options?: RequestInit): Promise<Task[]> {
+    return request<Task[]>(`/api/projects/${id}/tasks`, options);
   },
 
-  async getProjectFiles(id: string): Promise<FileListResponse> {
-    return request<FileListResponse>(`/api/projects/${id}/files`);
+  async getProjectFiles(id: string, options?: RequestInit): Promise<FileListResponse> {
+    return request<FileListResponse>(`/api/projects/${id}/files`, options);
   },
 
-  async getProjectPreview(id: string): Promise<BuildResult> {
-    return request<BuildResult>(`/api/projects/${id}/preview`);
+  async getProjectPreview(id: string, options?: RequestInit): Promise<BuildResult> {
+    return request<BuildResult>(`/api/projects/${id}/preview`, options);
   },
 
   getEventsUrl(id: string): string {

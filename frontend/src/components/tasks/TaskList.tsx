@@ -22,16 +22,25 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, isMock = false }) => 
     }
   };
 
+  const completedCount = tasks.filter((t) => t.status === "completed").length;
+
   return (
     <Card
       title="Pipeline Tasks"
       icon={<ListTodo className="h-4 w-4" />}
       action={
-        isMock ? (
-          <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">
-            Mock Preview
-          </span>
-        ) : null
+        <div className="flex items-center gap-2">
+          {isMock && (
+            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">
+              Mock Preview
+            </span>
+          )}
+          {tasks.length > 0 && (
+            <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 border border-purple-800/50 px-2 py-0.5 rounded">
+              {completedCount}/{tasks.length} done
+            </span>
+          )}
+        </div>
       }
     >
       {tasks.length === 0 ? (

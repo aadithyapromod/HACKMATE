@@ -11,6 +11,14 @@ export class ProjectEventStream {
 
   constructor(public readonly projectId: string) {}
 
+  public get readyState(): number {
+    return this.eventSource?.readyState ?? (typeof EventSource !== "undefined" ? EventSource.CLOSED : 2);
+  }
+
+  public get isConnected(): boolean {
+    return typeof EventSource !== "undefined" && this.eventSource?.readyState === EventSource.OPEN;
+  }
+
   public connect(onOpen?: () => void, onError?: (err: Event) => void): void {
     if (this.eventSource) {
       return;
@@ -21,10 +29,12 @@ export class ProjectEventStream {
     this.eventSource = new EventSource(url);
 
     this.eventSource.onopen = () => {
+      if (this.isExplicitlyClosed) return;
       if (onOpen) onOpen();
     };
 
     this.eventSource.onerror = (err) => {
+      if (this.isExplicitlyClosed) return;
       if (onError) onError(err);
     };
 
@@ -41,6 +51,7 @@ export class ProjectEventStream {
 
     eventTypes.forEach((type) => {
       this.eventSource?.addEventListener(type, (event: MessageEvent) => {
+        if (this.isExplicitlyClosed) return;
         try {
           const parsed = JSON.parse(event.data);
           const agentEvent: AgentEvent = {
@@ -56,6 +67,25 @@ export class ProjectEventStream {
         }
       });
     });
+
+    // Default message handler for unframed SSE messages
+    this.eventSource.onmessage = (event: MessageEvent) => {
+      if (this.isExplicitlyClosed) return;
+      try {
+        const parsed = JSON.parse(event.data);
+        const eventType: EventType = parsed.event_type || "project.status";
+        const agentEvent: AgentEvent = {
+          event_type: eventType,
+          project_id: this.projectId,
+          timestamp: parsed.timestamp || new Date().toISOString(),
+          data: parsed,
+        };
+        this.notify(eventType, agentEvent);
+        this.notify("*", agentEvent);
+      } catch {
+        // Ping or heartbeats ignore
+      }
+    };
   }
 
   public on(eventType: EventType | "*", handler: EventHandler): () => void {

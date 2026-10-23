@@ -1,6 +1,7 @@
 import React from "react";
-import { MonitorPlay, ExternalLink, ShieldCheck } from "lucide-react";
+import { MonitorPlay, ExternalLink, ShieldCheck, ShieldAlert } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { isValidPreviewUrl } from "@/lib/utils";
 
 interface AppPreviewProps {
   previewUrl: string | null;
@@ -11,6 +12,8 @@ export const AppPreview: React.FC<AppPreviewProps> = ({
   previewUrl,
   isMock = false,
 }) => {
+  const isSafe = isValidPreviewUrl(previewUrl);
+
   return (
     <Card
       title="Application Live Preview"
@@ -22,7 +25,7 @@ export const AppPreview: React.FC<AppPreviewProps> = ({
               Mock Preview
             </span>
           )}
-          {previewUrl && (
+          {previewUrl && isSafe && (
             <a
               href={previewUrl}
               target="_blank"
@@ -37,14 +40,26 @@ export const AppPreview: React.FC<AppPreviewProps> = ({
       }
     >
       {previewUrl ? (
-        <div className="rounded-lg border border-gray-800 overflow-hidden bg-black aspect-video">
-          <iframe
-            src={previewUrl}
-            title="Application Preview"
-            className="w-full h-full border-0"
-            sandbox="allow-scripts allow-same-origin"
-          />
-        </div>
+        isSafe ? (
+          <div className="rounded-lg border border-gray-800 overflow-hidden bg-black aspect-video">
+            <iframe
+              src={previewUrl}
+              title="Application Preview"
+              className="w-full h-full border-0"
+              sandbox="allow-scripts allow-same-origin"
+            />
+          </div>
+        ) : (
+          <div className="rounded-lg border border-rose-900/60 bg-rose-950/30 p-6 text-center space-y-2">
+            <ShieldAlert className="h-8 w-8 text-rose-400 mx-auto" />
+            <h4 className="text-sm font-semibold text-rose-200">
+              Untrusted Preview URL Blocked
+            </h4>
+            <p className="text-xs text-rose-300 font-mono">
+              The preview URL did not pass safe HTTP/HTTPS validation.
+            </p>
+          </div>
+        )
       ) : (
         <div className="rounded-lg border border-dashed border-gray-800 bg-[#0d131f]/50 p-8 text-center flex flex-col items-center justify-center space-y-3">
           <div className="h-10 w-10 rounded-full bg-purple-950/60 border border-purple-800/50 flex items-center justify-center text-purple-400">
