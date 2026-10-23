@@ -10,7 +10,7 @@ class TaskStatus(str, Enum):
 
 
 class Task(BaseModel):
-    id: str = Field(..., example="task-1")
-    title: str = Field(..., example="Generate application files")
-    description: str = Field(..., example="Generate the React application source")
-    status: TaskStatus = Field(default=TaskStatus.PENDING, example=TaskStatus.PENDING)
+    id: str = Field(..., json_schema_extra={"example": "task-1"})
+    title: str = Field(..., json_schema_extra={"example": "Generate application files"})
+    description: str = Field(..., json_schema_extra={"example": "Generate the React application source"})
+    status: TaskStatus = Field(default=TaskStatus.PENDING)

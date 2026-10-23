@@ -30,12 +30,12 @@ class ProjectCreateRequest(BaseModel):
 
 
 class Project(BaseModel):
-    id: str = Field(..., example="project-123")
-    idea: str = Field(..., example="Build a student hackathon matching website")
-    status: ProjectStatus = Field(default=ProjectStatus.CREATED, example=ProjectStatus.CREATED)
+    id: str = Field(..., json_schema_extra={"example": "project-123"})
+    idea: str = Field(..., json_schema_extra={"example": "Build a student hackathon matching website"})
+    status: ProjectStatus = Field(default=ProjectStatus.CREATED)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
-        example="2026-10-23T10:00:00Z"
+        json_schema_extra={"example": "2026-10-23T10:00:00Z"}
     )
 
 

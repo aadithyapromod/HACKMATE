@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends
 from fastapi.responses import StreamingResponse
 
 from app.schemas.project import Project, ProjectCreateRequest, ErrorResponse
@@ -7,6 +7,7 @@ from app.schemas.task import Task
 from app.schemas.files import FileListResponse, BuildResult
 from app.services.project_service import ProjectService, get_project_service
 from app.services.event_service import EventService, get_event_service
+from app.orchestrator.pipeline import ProjectPipeline, get_pipeline
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -62,17 +63,21 @@ def get_project(
         404: {"model": ErrorResponse, "description": "Project not found"},
     },
 )
-def start_project(
+async def start_project(
     project_id: str,
+    background_tasks: BackgroundTasks,
     service: ProjectService = Depends(get_project_service),
+    pipeline: ProjectPipeline = Depends(get_pipeline),
 ) -> Project:
-    """Trigger the autonomous agentic pipeline for the project."""
-    project = service.start_project(project_id)
+    """Transition project to planning status and launch the agentic pipeline as a background task."""
+    project = service.set_status_planning(project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project '{project_id}' not found",
         )
+    # Schedule the async pipeline; FastAPI BackgroundTasks correctly awaits coroutines.
+    background_tasks.add_task(pipeline.run, project_id)
     return project
 
 
