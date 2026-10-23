@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hackmate.local/schemas/generated-file.schema.json",
+  "title": "GeneratedFile",
+  "description": "Represents a generated project file with relative path and file content",
+  "type": "object",
+  "required": ["path", "content"],
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Relative workspace file path",
+      "examples": ["src/App.jsx", "package.json", "index.html"]
+    },
+    "content": {
+      "type": "string",
+      "description": "Full UTF-8 file content",
+      "examples": ["export default function App() { return <h1>Hello</h1>; }"]
+    }
+  },
+  "additionalProperties": false
+}

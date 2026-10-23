@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hackmate.local/schemas/agent-event.schema.json",
+  "title": "AgentEvent",
+  "description": "Server-Sent Event framing payload streamed over /api/projects/{id}/events",
+  "type": "object",
+  "required": ["event_type", "project_id", "timestamp", "data"],
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "project.status",
+        "task.updated",
+        "agent.status",
+        "build.log",
+        "build.completed",
+        "preview.ready",
+        "project.completed",
+        "project.failed"
+      ],
+      "description": "SSE event name",
+      "examples": ["agent.status", "task.updated"]
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Associated project ID",
+      "examples": ["project-123"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp of event generation"
+    },
+    "data": {
+      "type": "object",
+      "description": "Contextual event payload specific to event_type",
+      "examples": [
+        {
+          "agent": "Developer",
+          "status": "running",
+          "message": "Generating files"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

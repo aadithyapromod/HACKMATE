@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hackmate.local/schemas/task.schema.json",
+  "title": "Task",
+  "description": "Discrete subtask executed during planning and generation",
+  "type": "object",
+  "required": ["id", "title", "description", "status"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique task identifier",
+      "examples": ["task-1"]
+    },
+    "title": {
+      "type": "string",
+      "description": "Short action-oriented task title",
+      "examples": ["Generate application files"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed explanation of task goals",
+      "examples": ["Generate the React application source"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "running", "completed", "failed"],
+      "description": "Current status of the task",
+      "examples": ["pending"]
+    }
+  },
+  "additionalProperties": false
+}

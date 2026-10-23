@@ -1,0 +1,383 @@
+openapi: 3.1.0
+info:
+  title: HackMate API
+  description: Authoritative REST and SSE contract for the HackMate Agentic AI Platform.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000
+    description: Local development backend
+
+paths:
+  /api/health:
+    get:
+      summary: Health Check
+      description: Returns service status and environment information.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/projects:
+    post:
+      summary: Create Project
+      description: Creates a new project from a user-supplied hackathon idea (10-2000 chars).
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+      responses:
+        '201':
+          description: Project created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          description: Invalid idea text or validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/projects/{id}:
+    get:
+      summary: Get Project
+      description: Retrieves the stored project details and lifecycle status.
+      operationId: getProject
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique project identifier.
+      responses:
+        '200':
+          description: Project details retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          description: Project not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/projects/{id}/start:
+    post:
+      summary: Start Project Pipeline
+      description: Initiates the agentic planning and generation pipeline for the given project.
+      operationId: startProject
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pipeline started or status returned truthfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          description: Project not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/projects/{id}/tasks:
+    get:
+      summary: Get Project Tasks
+      description: Returns the list of tasks generated during planning and execution.
+      operationId: getProjectTasks
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of tasks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+        '404':
+          description: Project not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/projects/{id}/events:
+    get:
+      summary: Subscribe to Project Events (SSE)
+      description: Establishes a Server-Sent Events stream for real-time progress and logs.
+      operationId: getProjectEvents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active SSE stream sending text/event-stream chunks.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Formatted SSE stream with event and data lines.
+        '404':
+          description: Project not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/projects/{id}/files:
+    get:
+      summary: Get Generated Files
+      description: Returns the collection of files created for this project.
+      operationId: getProjectFiles
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of generated source files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileListResponse'
+        '404':
+          description: Project not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/projects/{id}/preview:
+    get:
+      summary: Get Project Preview Status
+      description: Returns the latest runner build result and preview server URL if active.
+      operationId: getProjectPreview
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current build and preview status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildResult'
+        '404':
+          description: Project not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+        - timestamp
+      properties:
+        status:
+          type: string
+          example: ok
+        service:
+          type: string
+          example: hackmate-backend
+        timestamp:
+          type: string
+          format: date-time
+
+    ProjectStatus:
+      type: string
+      enum:
+        - created
+        - planning
+        - generating
+        - building
+        - testing
+        - repairing
+        - completed
+        - failed
+      example: created
+
+    ProjectCreateRequest:
+      type: object
+      required:
+        - idea
+      properties:
+        idea:
+          type: string
+          minLength: 10
+          maxLength: 2000
+          description: Hackathon project description (10-2000 chars).
+          example: Build a student hackathon matching website
+
+    Project:
+      type: object
+      required:
+        - id
+        - idea
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          example: project-123
+        idea:
+          type: string
+          example: Build a student hackathon matching website
+        status:
+          $ref: '#/components/schemas/ProjectStatus'
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-10-23T10:00:00Z"
+
+    TaskStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - completed
+        - failed
+      example: pending
+
+    Task:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - status
+      properties:
+        id:
+          type: string
+          example: task-1
+        title:
+          type: string
+          example: Generate application files
+        description:
+          type: string
+          example: Generate the React application source
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+
+    GeneratedFile:
+      type: object
+      required:
+        - path
+        - content
+      properties:
+        path:
+          type: string
+          example: src/App.jsx
+        content:
+          type: string
+          example: "export default function App() { return <h1>Hello</h1>; }"
+
+    FileListResponse:
+      type: object
+      required:
+        - files
+      properties:
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeneratedFile'
+
+    BuildResult:
+      type: object
+      required:
+        - success
+        - exit_code
+        - logs
+      properties:
+        success:
+          type: boolean
+          example: true
+        exit_code:
+          type: integer
+          example: 0
+        logs:
+          type: string
+          example: Build succeeded
+        preview_url:
+          type:
+            - string
+            - 'null'
+          example: null
+
+    AgentEvent:
+      type: object
+      required:
+        - event_type
+        - project_id
+        - timestamp
+        - data
+      properties:
+        event_type:
+          type: string
+          enum:
+            - project.status
+            - task.updated
+            - agent.status
+            - build.log
+            - build.completed
+            - preview.ready
+            - project.completed
+            - project.failed
+          example: agent.status
+        project_id:
+          type: string
+          example: project-123
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+          example:
+            agent: Developer
+            status: running
+            message: Generating files
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          example: Project not found
