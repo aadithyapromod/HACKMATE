@@ -66,3 +66,7 @@ generated/*
 !generated/.gitkeep
 workspace/*
 !workspace/.gitkeep
+
+# Generated app build artifacts
+sandbox/**/node_modules/
+sandbox/**/dist/
