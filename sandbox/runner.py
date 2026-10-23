@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 import subprocess
 import sys
@@ -12,23 +12,40 @@ DOCKERFILE = Path(__file__).with_name("runner.Dockerfile")
 
 
 def run_command(args, timeout=300):
-    result = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-    return result.returncode, (result.stdout + result.stderr).strip()
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return result.returncode, (result.stdout + result.stderr).strip()
+    except FileNotFoundError:
+        return 127, f"Command not found: {args[0]}"
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: py sandbox/runner.py <project-folder> [port]")
+        print(json.dumps({
+            "success": False,
+            "exit_code": 2,
+            "logs": "Usage: py sandbox/runner.py <project-folder> [port]",
+            "preview_url": None,
+        }))
         return 2
 
     project = Path(sys.argv[1]).resolve()
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else 8081
+    try:
+        port = int(sys.argv[2]) if len(sys.argv) > 2 else 8081
+    except ValueError:
+        print(json.dumps({
+            "success": False,
+            "exit_code": 1,
+            "logs": "Port must be an integer between 1024 and 65535.",
+            "preview_url": None,
+        }))
+        return 1
 
     if not project.is_dir() or not (project / "package.json").is_file():
         print(json.dumps({
@@ -40,11 +57,21 @@ def main():
         return 1
 
     if not DOCKERFILE.is_file():
-        print("Runner Dockerfile not found: " + str(DOCKERFILE))
+        print(json.dumps({
+            "success": False,
+            "exit_code": 1,
+            "logs": f"Runner Dockerfile not found: {DOCKERFILE}",
+            "preview_url": None,
+        }))
         return 1
 
     if not 1024 <= port <= 65535:
-        print("Port must be between 1024 and 65535.")
+        print(json.dumps({
+            "success": False,
+            "exit_code": 1,
+            "logs": "Port must be between 1024 and 65535.",
+            "preview_url": None,
+        }))
         return 1
 
     project_id = re.sub(r"[^a-z0-9-]", "-", project.name.lower()).strip("-")
